@@ -81,3 +81,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Tsnu'e-Mahtem Identity Keys (user-generated)
+tsnue_private_key.pem
+tsnue_public_key.pem
+*.pem # A more general rule to catch any other PEM files accidentally created
