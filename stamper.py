@@ -6,32 +6,17 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric import rsa # For type hinting if needed
 from cryptography.hazmat.primitives import serialization # For type hinting if needed
 from cryptography.exceptions import InvalidSignature # For verifier later
+import os # Added for os.path.basename and os.path.exists
 
 # Import functions from our identity_manager
-# We need to handle Python's import system. If running stamper.py directly for tests,
-# this might need adjustment or we ensure tests are run from the root of the project.
-# For now, let's assume it can be imported if the execution context is the project root.
 try:
-    from .identity_manager import load_private_key, get_tsnue_id
+    from .identity_manager import load_private_key, get_tsnue_id, PRIVATE_KEY_FILE as DEFAULT_PRIV_KEY_PATH
 except ImportError:
     # Fallback for direct execution (e.g. python stamper.py)
-    from identity_manager import load_private_key, get_tsnue_id
+    from identity_manager import load_private_key, get_tsnue_id, PRIVATE_KEY_FILE as DEFAULT_PRIV_KEY_PATH
 
 
 # Define the structure of a Tsnu'e Stamp
-# This is a Python dictionary that will be serialized to JSON for storage/transfer
-# {
-#   "protocol_version": "1.0",
-#   "tsnue_id": "string (hash of public key)",
-#   "timestamp_utc": float (Unix timestamp),
-#   "original_filename": "string",
-#   "file_hash_algorithm": "string (e.g., 'sha256')",
-#   "file_hash": "string (hex digest of the file content)",
-#   "signature_algorithm": "string (e.g., 'RSASSA-PKCS1-v1_5-SHA256')",
-#   "signature": "string (base64 encoded signature of 'file_hash' + other metadata)"
-#   "public_key_pem": "string (PEM format of public key, for easier verification)"
-# }
-
 PROTOCOL_VERSION = "Tsnu'eMahtem-1.0"
 
 def calculate_file_hash(filepath, hash_algorithm='sha256'):
@@ -61,8 +46,6 @@ def create_stamp_payload_to_sign(tsnue_id, timestamp_utc, original_filename, fil
     """
     Creates a canonical representation of the stamp data that will be signed.
     This ensures that the verifier signs the exact same structured data.
-    For simplicity, we'll make it a concatenated string of key fields.
-    A more robust method would be a canonical JSON or XML representation.
     """
     # Order is important here for consistent signature generation
     payload = f"{PROTOCOL_VERSION}|{tsnue_id}|{timestamp_utc}|{original_filename}|{file_hash_algorithm}|{file_hash}"
@@ -81,17 +64,16 @@ def sign_data(private_key: rsa.RSAPrivateKey, data_to_sign: bytes):
     )
     return base64.b64encode(signature).decode('utf-8')
 
-def create_tsnue_stamp(filepath, private_key_path="tsnue_private_key.pem", private_key_password=None):
+def create_tsnue_stamp(filepath, private_key_path=DEFAULT_PRIV_KEY_PATH, private_key_password=None): # MODIFIED
     """
     Creates a Tsnu'e Stamp for the given file.
+    Accepts an optional password for the private key.
     """
-    import os
-
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"File not found: {filepath}")
 
-    # 1. Load the private key
-    private_key = load_private_key(private_key_path, private_key_password)
+    # 1. Load the private key, NOW WITH PASSWORD
+    private_key = load_private_key(private_key_path, password=private_key_password) # MODIFIED: Pass the password
     public_key = private_key.public_key() # Get public key for ID and embedding
 
     # 2. Get Tsnu'e ID
@@ -133,37 +115,35 @@ def create_tsnue_stamp(filepath, private_key_path="tsnue_private_key.pem", priva
         "signature": signature_b64,
         "public_key_pem": public_key_pem
     }
-
     return stamp
 
 # --- Main execution for testing ---
 if __name__ == "__main__":
-    print("Tsnu'e-Mahtem Stamper")
-    print("---------------------")
+    print("Tsnu'e-Mahtem Stamper (Test Block)")
+    print("---------------------------------")
+    print("NOTE: Direct execution of stamper.py's test block may FAIL if 'tsnue_private_key.pem' is password-protected,")
+    print("as it does not currently prompt for a password. Test password functionality via main_cli.py.")
 
     # Create a dummy file to stamp for testing
-    TEST_FILE = "sample_document.txt"
+    TEST_FILE = "sample_document_stamper_test.txt" # Using a different name to avoid conflict with main verifier test
     with open(TEST_FILE, "w") as f:
-        f.write("This is a test document for Tsnu'e-Mahtem.\n")
+        f.write("This is a test document for Tsnu'e-Mahtem (stamper.py direct test).\n")
         f.write(f"It was created at {time.ctime()}.\n")
-
     print(f"Attempting to stamp file: {TEST_FILE}")
 
     try:
-        # Ensure keys exist from identity_manager.py first run
-        import os
-        if not os.path.exists("tsnue_private_key.pem"):
-            print("Error: Private key 'tsnue_private_key.pem' not found.")
-            print("Please run identity_manager.py first to generate keys.")
+        if not os.path.exists(DEFAULT_PRIV_KEY_PATH):
+            print(f"Error: Private key '{DEFAULT_PRIV_KEY_PATH}' not found.")
+            print("Please run 'python identity_manager.py' or 'python main_cli.py generate-id' first to generate keys.")
             exit()
-
-        tsnue_stamp = create_tsnue_stamp(TEST_FILE)
-        print("\nSuccessfully created Tsnu'e Stamp:")
-        # Pretty print the JSON
+        
+        # This direct call will likely fail if the default key is password protected
+        # because no password is provided here.
+        print("Attempting to create stamp (may fail if key is password protected and no password provided here)...")
+        tsnue_stamp = create_tsnue_stamp(TEST_FILE, private_key_path=DEFAULT_PRIV_KEY_PATH, private_key_password=None) # Explicitly None for test
+        print("\nSuccessfully created Tsnu'e Stamp (if key was not password-protected or password was not needed):")
         print(json.dumps(tsnue_stamp, indent=2))
 
-        # For now, let's save the stamp to a file for easy inspection
-        # We'll build a proper stamp_store.py later
         stamp_filename = f"{TEST_FILE}.tsnue-stamp.json"
         with open(stamp_filename, "w") as sf:
             json.dump(tsnue_stamp, sf, indent=2)
@@ -171,13 +151,19 @@ if __name__ == "__main__":
 
     except FileNotFoundError as e:
         print(f"Error: {e}")
+    except (ValueError, TypeError) as e: # Catch errors from incorrect password during load_private_key
+        if "decryption failed" in str(e).lower() or \
+            "bad decrypt" in str(e).lower() or \
+            "password" in str(e).lower():
+                print(f"Error creating stamp: Could not load private key. It might be password-protected. ({e})")
+        else:
+                print(f"An error occurred during stamping (ValueError/TypeError): {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         import traceback
-        traceback.print_exc() # Print full traceback for debugging
-
+        traceback.print_exc()
     finally:
         # Clean up the dummy file
-        if os.path.exists(TEST_FILE):
-            # os.remove(TEST_FILE) # Comment out if you want to keep the file for verifier testing
-            pass
+        # if os.path.exists(TEST_FILE):
+        #     os.remove(TEST_FILE) # Comment out if you want to keep the file for verifier testing
+        pass
