@@ -1,0 +1,11 @@
+{
+  "protocol_version": "Tsnu'eMahtem-1.0",
+  "tsnue_id": "0a11a2f5f8244c25669e7979d41e79fc9e7aeb64d72e87ec79fb3dcd9ab85574",
+  "timestamp_utc": 1748082592.1696703,
+  "original_filename": "sample_document.txt",
+  "file_hash_algorithm": "sha256",
+  "file_hash": "70cbf66092c18b4baad1139b5788233ebd00611d043673bd783bddf713fc8a70",
+  "signature_algorithm": "RSASSA-PKCS1-v1_5-SHA256",
+  "signature": "fwkUnrj3HWWVV+TkeC+ppdPfc0Ix9pGvtBPIUpM1nf19UGb582oqtD/Ol5H5tkKXkX3YsJbp9N9uu/alNSHZ/VhCPK/2p+05hNd8cTmlS5CVwKMgrDKxHDsWaI1Ugv458vvsodIp9WNBjBQ3b7Y67isnUkf7wD5NnUoFo4sdKhX8PikJnk8mLOhjxuPxDShhE6fTP4Z2rf4NoVo9gIAc3ychGggUU/KZxydrmeCLjdw6YkTne8kHcqAmyEyJxdnijMG71B+17Ol1cBshLfSmWdY6lmA7lkvmlpe8+w8kI9FFAz0ecesSgzNN1DVBps8mXHotpmUfNvMKF/cDq08k0w==",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmhCDOtfC5rVqqduEGydD\nuVML2IP6LH/duVOdWQcm9YhLSfrzuvsgIzyO0oDI9ySK7ljN5GqdllkFChSsBoR1\nJqxDR66v3g7dc+xg3itEkmQknrh+OZRo9aI1RM/o0T+cCkT4It1HtijqFa+bVhzA\npj5EIF+bIPAwGHOUiqFpX5wvVHwlmHmpfquPTCXKrRrrNWgB455Ia+6YgiG00nt+\nBPy5WtRU3nRMAF5nRK7sagBX21NkkdQHKFRekdM27+TDCjepnLOMo+97m3B1+/TV\nuY3sViMshFU49jjxYOBlhKQWHfAb7dc6ikUBVWpx3VBJCbBYLX7mJrxQidJyZAjD\nrwIDAQAB\n-----END PUBLIC KEY-----\n"
+}
