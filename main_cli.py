@@ -12,7 +12,7 @@ try:
         load_private_key, load_public_key, get_tsnue_id,
         PRIVATE_KEY_FILE, PUBLIC_KEY_FILE
     )
-    from stamper import create_tsnue_stamp, calculate_file_hash
+    from stamper import create_tsnue_stamp, calculate_file_hash, publish_stamp_to_ipfs # ADDED publish_stamp_to_ipfs
     from verifier import verify_tsnue_stamp
     from stamp_store import add_stamp, get_stamp_by_file_hash, get_stamps_by_filename, list_all_stamps, STAMP_STORE_FILE
 except ImportError as e:
@@ -63,11 +63,6 @@ def handle_generate_id(args):
                 break
             else:
                 print_error("Passwords do not match. Please try again.")
-                # Optional: allow limited retries or exit
-                # For now, let's allow another try by continuing loop.
-                # To exit on mismatch:
-                # print_error("Passwords do not match. Aborting generation.")
-                # return
     else:
         print_info("Option --no-password selected. Private key will NOT be encrypted.")
         key_password = None
@@ -89,7 +84,11 @@ def handle_generate_id(args):
 
 def handle_stamp_file(args):
     filepath = args.filepath
+    publish_to_ipfs_flag = args.publish_ipfs # Get the flag
+
     print_info(f"Attempting to stamp file: {filepath}")
+    if publish_to_ipfs_flag:
+        print_info("IPFS publishing is ENABLED for this stamp.")
 
     if not os.path.exists(filepath):
         print_error(f"File not found at '{filepath}'. Cannot stamp.")
@@ -105,12 +104,11 @@ def handle_stamp_file(args):
 
     private_key_password_to_use = args.password
     if not private_key_password_to_use:
-        # Only prompt if key exists and no password given via CLI
         print_info(f"Private key '{PRIVATE_KEY_FILE}' exists. It might be password protected.")
         prompt_for_pw = input("Do you want to provide a password to unlock it? (yes/no, default no): ").lower()
         if prompt_for_pw == 'yes':
             private_key_password_to_use = getpass.getpass(f"Enter password for private key '{PRIVATE_KEY_FILE}': ")
-        elif not private_key_password_to_use: # Catches 'no' or blank input at prompt
+        elif not private_key_password_to_use:
              print_info("Attempting to load private key without a password.")
              private_key_password_to_use = None
 
@@ -122,17 +120,29 @@ def handle_stamp_file(args):
             private_key_password=private_key_password_to_use
         )
 
-        if add_stamp(tsnue_stamp_data):
-            print_success("Tsnu'e Stamp created and added to store.")
-            print("--- Stamp Details ---")
-            print(json.dumps(tsnue_stamp_data, indent=2))
-            print("---------------------")
+        if not args.no_store: # Check if we should add to local store
+            if add_stamp(tsnue_stamp_data):
+                print_success("Tsnu'e Stamp created and added to local store.")
+            else:
+                print_error("Tsnu'e Stamp created, but FAILED to add to local store.")
         else:
-            print_error("Tsnu'e Stamp created, but FAILED to add to store.")
-            print_info("The stamp data that was created (but not stored):")
-            print(json.dumps(tsnue_stamp_data, indent=2))
+            print_info("Tsnu'e Stamp created (local store addition skipped due to --no-store).")
 
-    except FileNotFoundError as e: # Should be caught by earlier checks, but good fallback
+        print("--- Stamp Details ---")
+        print(json.dumps(tsnue_stamp_data, indent=2))
+        print("---------------------")
+
+        if publish_to_ipfs_flag:
+            print_info("Attempting to publish stamp to IPFS...")
+            # Ensure IPFS daemon is running for this to work
+            cid = publish_stamp_to_ipfs(tsnue_stamp_data) # This function now exists in stamper.py
+            if cid:
+                print_success(f"Stamp successfully published to IPFS with CID: {cid}")
+                print_info(f"You can view it via an IPFS gateway, e.g., https://ipfs.io/ipfs/{cid} or http://localhost:8080/ipfs/{cid}")
+            else:
+                print_error("Failed to publish stamp to IPFS. Check IPFS daemon status and connection.")
+
+    except FileNotFoundError as e:
         print_error(f"File not found during stamping process: {e}.")
     except (ValueError, TypeError) as e:
         if "decryption failed" in str(e).lower() or \
@@ -145,10 +155,10 @@ def handle_stamp_file(args):
             print_error(f"An issue occurred during stamping (ValueError/TypeError): {e}")
     except Exception as e:
         print_error(f"An unexpected error occurred during stamping: {e}")
-        # import traceback # Consider adding for more detailed debugging if needed by user
-        # traceback.print_exc()
 
 def handle_verify_file(args):
+    # ... (This function remains unchanged for now, IPFS retrieval will be a separate step) ...
+    # For brevity, I'll paste the existing version. If you want me to integrate IPFS retrieval here now, let me know.
     filepath_to_verify = args.filepath
     stamp_identifier = args.stamp_identifier
     print_info(f"Attempting to verify file: '{filepath_to_verify}'")
@@ -159,16 +169,14 @@ def handle_verify_file(args):
 
     actual_stamp_file_to_verify_with = None
     stamp_source_info = ""
-    temp_stamp_file_path = None # To keep track of temporary file for cleanup
+    temp_stamp_file_path = None 
 
-    # Try to use stamp_identifier as a direct file path first
     if os.path.exists(stamp_identifier) and \
        (stamp_identifier.endswith(".tsnue-stamp.json") or stamp_identifier.endswith(".json")):
         print_info(f"Using direct stamp file: '{stamp_identifier}'")
         actual_stamp_file_to_verify_with = stamp_identifier
         stamp_source_info = f"direct stamp file '{stamp_identifier}'"
     else:
-        # Assume stamp_identifier is a file_hash for store lookup
         print_info(f"Searching stamp store for identifier (assumed file_hash): '{stamp_identifier}'")
         retrieved_stamp_data = get_stamp_by_file_hash(stamp_identifier)
         if retrieved_stamp_data:
@@ -180,9 +188,9 @@ def handle_verify_file(args):
                 stamp_source_info = f"stamp from store (found by hash: {args.stamp_identifier})"
             except Exception as e_write:
                 print_error(f"Could not write temporary stamp file '{temp_stamp_file_path}': {e_write}")
-                return # Cannot proceed if temp file fails
+                if temp_stamp_file_path and os.path.exists(temp_stamp_file_path): os.remove(temp_stamp_file_path) # cleanup
+                return
         else:
-            # Fallback: calculate hash of current file and check store
             print_info(f"Stamp not found by identifier '{stamp_identifier}'.")
             print_info(f"Calculating hash of '{filepath_to_verify}' to check store as a fallback...")
             try:
@@ -206,12 +214,9 @@ def handle_verify_file(args):
 
     if not actual_stamp_file_to_verify_with:
         print_error("Could not identify or prepare a valid stamp to verify against. Verification aborted.")
-        # Clean up just in case, though unlikely to be created if this path is hit
         if temp_stamp_file_path and os.path.exists(temp_stamp_file_path):
-            try:
-                os.remove(temp_stamp_file_path)
-            except OSError as e_del:
-                print_warning(f"Could not remove temporary stamp file '{temp_stamp_file_path}': {e_del}")
+            try: os.remove(temp_stamp_file_path)
+            except OSError as e_del: print_warning(f"Could not remove temporary stamp file '{temp_stamp_file_path}': {e_del}")
         return
 
     try:
@@ -236,12 +241,11 @@ def handle_verify_file(args):
         print_error(f"An unexpected error occurred during verification: {e}")
     finally:
         if temp_stamp_file_path and os.path.exists(temp_stamp_file_path):
-            try:
-                os.remove(temp_stamp_file_path)
-            except OSError as e_del:
-                print_warning(f"Could not remove temporary stamp file '{temp_stamp_file_path}': {e_del}")
+            try: os.remove(temp_stamp_file_path)
+            except OSError as e_del: print_warning(f"Could not remove temporary stamp file '{temp_stamp_file_path}': {e_del}")
 
 def handle_show_id(args):
+    # ... (This function remains unchanged) ...
     print_info("Attempting to display Tsnu'e ID...")
     try:
         if not os.path.exists(PUBLIC_KEY_FILE):
@@ -263,6 +267,7 @@ def handle_show_id(args):
         print_error(f"An unexpected error occurred: {e}")
 
 def handle_list_stamps(args):
+    # ... (This function remains unchanged) ...
     limit = args.limit
     filename_filter = args.filename
 
@@ -302,6 +307,7 @@ def handle_list_stamps(args):
         print(json.dumps(stamp_preview, indent=2))
         print("--------------------")
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Tsnu'e-Mahtem: Content Authenticity & Provenance CLI",
@@ -309,6 +315,7 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands (use <command> -h for more help)", required=True)
 
+    # ... (generate-id and show-id parsers remain the same) ...
     parser_generate_id = subparsers.add_parser("generate-id", help="Generate a new Tsnu'e ID (key pair).")
     parser_generate_id.add_argument("--force", action="store_true", help="Force overwrite if keys already exist.")
     parser_generate_id.add_argument("--no-password", action="store_true", help="Generate private key without password encryption.")
@@ -318,19 +325,22 @@ def main():
     parser_show_id.add_argument("--show-key", action="store_true", help="Also display the public key PEM.")
     parser_show_id.set_defaults(func=handle_show_id)
 
-    parser_stamp = subparsers.add_parser("stamp", help="Create a Tsnu'e Stamp for a file and add it to the store.")
+    # --- stamp command ---
+    parser_stamp = subparsers.add_parser("stamp", help="Create a Tsnu'e Stamp for a file.")
     parser_stamp.add_argument("filepath", help="Path to the file to stamp.")
     parser_stamp.add_argument("-p", "--password", help="Password for the private key (if encrypted). If not provided, will be prompted.", default=None)
+    parser_stamp.add_argument("--publish-ipfs", action="store_true", help="Publish the generated stamp to IPFS.") # NEW ARG
+    parser_stamp.add_argument("--no-store", action="store_true", help="Do not add the stamp to the local JSON store.") # NEW ARG
     parser_stamp.set_defaults(func=handle_stamp_file)
 
+    # ... (verify and list-stamps parsers remain the same for now) ...
     parser_verify = subparsers.add_parser("verify", help="Verify a file against a Tsnu'e Stamp from store or file.")
     parser_verify.add_argument("filepath", help="Path to the file to verify.")
     parser_verify.add_argument("stamp_identifier",
         help="Identifier for the stamp. Can be:\n"
              "  - The file_hash of the stamp in the local store.\n"
              "  - Path to a specific .tsnue-stamp.json file.\n"
-             "If a hash is given and not found, the tool will try to\n"
-             "calculate the hash of the current <filepath> and search the store again."
+             "  - An IPFS CID of a stamp (TODO: implement IPFS retrieval for verify)." # Added TODO in help
     )
     parser_verify.set_defaults(func=handle_verify_file)
 
@@ -338,6 +348,7 @@ def main():
     parser_list.add_argument("-n", "--limit", type=int, help="Limit the number of stamps displayed (most recent first).")
     parser_list.add_argument("-f", "--filename", type=str, help="Filter stamps by original filename.")
     parser_list.set_defaults(func=handle_list_stamps)
+
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -347,9 +358,6 @@ def main():
     if hasattr(args, 'func'):
         args.func(args)
     else:
-        # This case should ideally not be reached if subparsers are required
-        # and a default func is set for each, or if len(sys.argv)==1 is handled.
-        # However, as a fallback:
         print_error("No command specified or command not recognized.")
         parser.print_help(sys.stderr)
         sys.exit(1)
